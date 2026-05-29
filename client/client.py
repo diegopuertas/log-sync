@@ -1,88 +1,56 @@
-#!/usr/bin/env python3
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import json
-import sys
-import threading
+import socket
+import os
+import time
 
-# Flag to control the server
-running = True
+HOST = os.getenv('BACKUP_SERVER_HOSTNAME' ,'server')
+PORT = os.getenv('BACKUP_SERVER_PORT' ,'65432')
+DIRECTORY = os.getenv('LOG_DIRECTORY' ,'/log')
+BLOCK_SIZE = os.getenv('BLOCK_SIZE' ,'1024')
+SLEEP_INTERVAL = os.getenv('SLEEP_INTERVAL' ,'10')
 
-class DaemonHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for the daemon"""
-    
-    def do_GET(self):
-        """Handle GET requests - status check"""
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        
-        response = {
-            'status': 'running',
-            'message': 'Python daemon is alive'
-        }
-        self.wfile.write(json.dumps(response).encode())
-    
-    def do_POST(self):
-        """Handle POST requests - shutdown command"""
-        global running
-        
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length)
-        
-        try:
-            data = json.loads(post_data) if content_length > 0 else {}
-        except json.JSONDecodeError:
-            data = {}
-        
-        # Check if this is a shutdown request
-        if self.path == '/shutdown' or data.get('action') == 'shutdown':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            
-            response = {
-                'status': 'success',
-                'message': 'Shutting down daemon...'
-            }
-            self.wfile.write(json.dumps(response).encode())
-            
-            print("Received shutdown request via POST. Stopping daemon...")
-            running = False
-            
-            # Shutdown server in a separate thread to allow response to complete
-            threading.Thread(target=self.server.shutdown).start()
-        else:
-            self.send_response(400)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            
-            response = {
-                'status': 'error',
-                'message': 'Invalid endpoint. Use POST /shutdown'
-            }
-            self.wfile.write(json.dumps(response).encode())
-    
-    def log_message(self, format, *args):
-        """Custom log format"""
-        print(f"[{self.log_date_time_string()}] {format % args}")
+def send_file(full_path):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        filename = os.path.basename(full_path)
+        filename_bytes = filename.encode('utf-8')
+        print(f"Connecting to {HOST}:{PORT}")
+        s.connect((HOST, PORT))
 
-def main():
-    host = '0.0.0.0'
-    port = 8080
+        # 1: Send filename length and filename
+        s.sendall(len(filename_bytes).to_bytes(4, byteorder='big'))
+        s.sendall(filename_bytes)
+
+        # 2: Receive current filesize from server
+        filesize_bytes = s.recv(8)
+        filesize = int.from_bytes(filesize_bytes, byteorder='big')
+        print(f"Server reports existing filesize: {filesize}")
+
+        # 3: Send data in BLOCK_SIZE chunks
+        with open(full_path, 'r', encoding='utf-8') as f:
+            # Move past the offset, don't send what's already there
+            f.seek(filesize)
+            # Start sending chunks
+            while True:
+                content = f.read(BLOCK_SIZE)
+                if not content:
+                    break
+                chunk_bytes = content.encode('utf-8')
+                # Send the chunk length
+                s.sendall(len(chunk_bytes).to_bytes(8, byteorder='big'))
+                # Send the chunk itself
+                s.sendall(chunk_bytes)
+                print(f"Sent {len(chunk_bytes)} bytes from {filename}")
+
+        print("Finished sending")
     
-    server = HTTPServer((host, port), DaemonHandler)
-    
-    print(f"Python daemon HTTP server started on {host}:{port}")
-    print(f"- GET  /       -> Check status")
-    print(f"- POST /shutdown -> Stop the daemon")
-    print("-" * 50)
-    
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        print("\nDaemon stopped cleanly.")
+def sync_dir(directory):
+    for filename in os.listdir(directory):
+        full_path = os.path.join(directory, filename)
+        print(f"Processing file: {full_path}")
+        if os.path.isfile(full_path):
+            send_file(full_path)
 
 if __name__ == "__main__":
-    main()
+    while True:
+        sync_dir(DIRECTORY)
+        print(f"Sleeping for {SLEEP_INTERVAL} seconds...")
+        time.sleep(SLEEP_INTERVAL)

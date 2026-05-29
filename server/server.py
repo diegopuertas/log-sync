@@ -1,88 +1,78 @@
 #!/usr/bin/env python3
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import json
-import sys
-import threading
+import socket
+import os
 
-# Flag to control the server
-running = True
+HOST = os.getenv('BACKUP_SERVER_LISTENS_TO', '0.0.0.0')
+PORT = os.getenv('BACKUP_SERVER_PORT', '65432')
+BUFFER_SIZE = os.getenv('BLOCK_SIZE', '1024')
+DIRECTORY = os.getenv('BACKUP_DIRECTORY', '/backup')
 
-class DaemonHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for the daemon"""
-    
-    def do_GET(self):
-        """Handle GET requests - status check"""
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        
-        response = {
-            'status': 'running',
-            'message': 'Python daemon is alive'
-        }
-        self.wfile.write(json.dumps(response).encode())
-    
-    def do_POST(self):
-        """Handle POST requests - shutdown command"""
-        global running
-        
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length)
-        
-        try:
-            data = json.loads(post_data) if content_length > 0 else {}
-        except json.JSONDecodeError:
-            data = {}
-        
-        # Check if this is a shutdown request
-        if self.path == '/shutdown' or data.get('action') == 'shutdown':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            
-            response = {
-                'status': 'success',
-                'message': 'Shutting down daemon...'
-            }
-            self.wfile.write(json.dumps(response).encode())
-            
-            print("Received shutdown request via POST. Stopping daemon...")
-            running = False
-            
-            # Shutdown server in a separate thread to allow response to complete
-            threading.Thread(target=self.server.shutdown).start()
-        else:
-            self.send_response(400)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            
-            response = {
-                'status': 'error',
-                'message': 'Invalid endpoint. Use POST /shutdown'
-            }
-            self.wfile.write(json.dumps(response).encode())
-    
-    def log_message(self, format, *args):
-        """Custom log format"""
-        print(f"[{self.log_date_time_string()}] {format % args}")
+def receive_bytes(connection, bytes):
+    """Receive an exact number of bytes from the socket"""
+    data = b''
+    while len(data) < bytes:
+        chunk = connection.recv(bytes - len(data))
+        if not chunk:
+            raise ConnectionError("Client disconnected")
+        data += chunk
+    return data
 
-def main():
-    host = '0.0.0.0'
-    port = 8080
-    
-    server = HTTPServer((host, port), DaemonHandler)
-    
-    print(f"Python daemon HTTP server started on {host}:{port}")
-    print(f"- GET  /       -> Check status")
-    print(f"- POST /shutdown -> Stop the daemon")
-    print("-" * 50)
-    
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        print("\nDaemon stopped cleanly.")
+def start_server():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Only use in DEV
+        s.bind((HOST, PORT))
+        s.listen(1)
+        print(f"Server listening on {HOST}:{PORT}")
+
+        while True:
+            connection, address = s.accept()
+            # Create a directory per client, to store the logs
+            address = address[0].replace('.', '_')
+            os.makedirs(os.path.join(DIRECTORY, address), exist_ok=True)
+
+            with connection:
+                print(f"Connection from {address}")
+
+                # 1: Receive request for filename
+                # Get filename length (4 bytes is enough)
+                filename_len_bytes = receive_bytes(connection, 4)
+                filename_len = int.from_bytes(filename_len_bytes, byteorder='big')
+                # Get filename
+                filename_bytes = receive_bytes(connection, filename_len)
+                filename = os.path.join(DIRECTORY, address,
+                                        filename_bytes.decode('utf-8'))
+                print(f"Requested file: {filename}")
+
+                # 2: Send The file size. 0 if it doesn't exist
+                # Check file size and send it to client
+                if os.path.exists(filename):
+                    filesize = os.path.getsize(filename)
+                else:
+                    filesize = 0
+                connection.sendall(filesize.to_bytes(8, byteorder='big'))
+                print(f"Sent filesize: {filesize}")
+
+                # 3: Receive multiple blocks until client disconnects
+                with open(filename, 'a', encoding='utf-8') as f:
+                    while True:
+                        try:
+                            # Attempt to read length of transmission
+                            data_len_bytes = receive_bytes(connection, 8)
+                        except ConnectionError:
+                            print("Client finished sending.")
+                            break
+                        data_len = int.from_bytes(data_len_bytes, byteorder='big')
+                        if data_len <= 0:
+                            print("No more data.")
+                            break
+                        try:
+                            data = receive_bytes(connection, data_len)
+                        except ConnectionError:
+                            print("Client finished sending.")
+                            break
+                        content = data.decode('utf-8')
+                        f.write(content)
+                        print(f"Appended {data_len} bytes to {filename}")
 
 if __name__ == "__main__":
-    main()
+    start_server()
