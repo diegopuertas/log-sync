@@ -9,8 +9,6 @@ services:
       - "8081:8080"
     volumes:
       - ./backups:/backup
-    networks:
-      - my_net
     env_file:
       - environment
 
@@ -22,15 +20,10 @@ services:
       dockerfile: Dockerfile
     init: true
     container_name: client
+    entrypoint: ["/bin/sh", "-c", "sleep infinity"]
     ports:
       - "8082:8080"
     volumes:
       - ./logs:/log
-    networks:
-      - my_net
     env_file:
       - environment
-
-networks:
-  my_net:
-    driver: bridge

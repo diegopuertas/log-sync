@@ -4,11 +4,9 @@ WORKDIR /app
 
 RUN apt update && apt install -y iputils-ping procps 
 
-COPY requirements.txt .
+COPY client.py requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
 
 EXPOSE 8080
 
-ENTRYPOINT ["python", "-u", "-i", "client.py"]
+# ENTRYPOINT ["python", "-u", "client.py"]

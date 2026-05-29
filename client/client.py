@@ -3,10 +3,10 @@ import os
 import time
 
 HOST = os.getenv('BACKUP_SERVER_HOSTNAME' ,'server')
-PORT = os.getenv('BACKUP_SERVER_PORT' ,'65432')
+PORT = int(os.getenv('BACKUP_SERVER_PORT' ,65432))
 DIRECTORY = os.getenv('LOG_DIRECTORY' ,'/log')
-BLOCK_SIZE = os.getenv('BLOCK_SIZE' ,'1024')
-SLEEP_INTERVAL = os.getenv('SLEEP_INTERVAL' ,'10')
+BLOCK_SIZE = int(os.getenv('BLOCK_SIZE' ,1024))
+SLEEP_INTERVAL = int(os.getenv('SLEEP_INTERVAL' ,'10'))
 
 def send_file(full_path):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

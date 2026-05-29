@@ -3,8 +3,8 @@ import socket
 import os
 
 HOST = os.getenv('BACKUP_SERVER_LISTENS_TO', '0.0.0.0')
-PORT = os.getenv('BACKUP_SERVER_PORT', '65432')
-BUFFER_SIZE = os.getenv('BLOCK_SIZE', '1024')
+PORT = int(os.getenv('BACKUP_SERVER_PORT', 65432))
+BUFFER_SIZE = int(os.getenv('BLOCK_SIZE', 1024))
 DIRECTORY = os.getenv('BACKUP_DIRECTORY', '/backup')
 
 def receive_bytes(connection, bytes):
