@@ -103,5 +103,5 @@ its caller, the server daemon, two things:
    data and write it to the disk at the desired interval size. If we set a big
    value for `bytes` it will be good for transmission speed. If we set it small
    it would be better for memory consumption and for using this systems in poor
-   quality networks prone to disconnection. Tuning this value we can adjust to
+   quality networks prone to disconnection. Tuning this value we can adjust the
    code to work best for an specific use case.
