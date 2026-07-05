@@ -7,7 +7,6 @@ services:
         - ENVIRONMENT=prod
     init: true
     container_name: server
-    # entrypoint: ["/bin/sh", "-c", "sleep infinity"]
     volumes:
       - ./backups:/backup
     env_file:
@@ -23,7 +22,6 @@ services:
         - ENVIRONMENT=prod
     init: true
     container_name: client
-    # entrypoint: ["/bin/sh", "-c", "sleep infinity"]
     volumes:
       - ./logs:/log
     env_file:
