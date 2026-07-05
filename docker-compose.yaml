@@ -3,6 +3,8 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
+      args:
+        - ENVIRONMENT=prod
     init: true
     container_name: server
     # entrypoint: ["/bin/sh", "-c", "sleep infinity"]
@@ -17,6 +19,8 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
+      args:
+        - ENVIRONMENT=prod
     init: true
     container_name: client
     # entrypoint: ["/bin/sh", "-c", "sleep infinity"]
